@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06111a">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Jarvis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: one-screen phone HUD. Header, animated core, scrolling transcript, quick-command strip, input bar. Deliberately a single dark look. */
+:root {
+  --ink: #06111a;
+  --panel: #0a1b27;
+  --line: #143347;
+  --cyan: #52d9ff;
+  --cyan-dim: #1f7f9e;
+  --amber: #ffb454;
+  --text: #d6eff9;
+  --muted: #7b9fb0;
+  --font-display: 'Chakra Petch', 'Arial Narrow', sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 6px 8px;
+  --live: var(--cyan);
+  overflow: hidden;
+}
+body[data-mode="thinking"] { --live: var(--amber); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 6px; flex: none; }
+.brand { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.32em; font-size: 18px; }
+.brand small { font-family: var(--font-mono); font-weight: 400; letter-spacing: 0.14em; font-size: 10px; color: var(--muted); margin-left: 8px; }
+.right { display: flex; align-items: center; gap: 10px; }
+.status { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--live); }
+.status i { width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 10px var(--live); }
+.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 10px; min-height: 32px; border-radius: 3px; }
+.ghost:hover { color: var(--text); border-color: var(--cyan-dim); }
+
+.settings { flex: none; border: 1px solid var(--line); background: var(--panel); padding: 12px; display: grid; gap: 12px; margin-bottom: 8px; border-radius: 4px; }
+.settings label { display: grid; gap: 4px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); min-width: 0; }
+.settings input[type="text"], .settings select { background: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 9px 10px; min-height: 40px; color: var(--text); font-size: 16px; text-transform: none; letter-spacing: 0; font-family: var(--font-body); min-width: 0; width: 100%; box-sizing: border-box; }
+.settings .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings .row label { display: flex; align-items: center; gap: 8px; }
+.settings input[type="range"] { accent-color: var(--cyan); width: 100%; }
+
+.stage { flex: none; height: clamp(140px, 25vh, 220px); display: grid; place-items: center; }
+.orb { background: none; border: 0; padding: 0; height: 100%; aspect-ratio: 1; max-width: 100%; }
+.orb svg { width: 100%; height: 100%; overflow: visible; }
+.orb .ring { fill: none; stroke: var(--live); transform-box: fill-box; transform-origin: 50% 50%; }
+.r-outer { stroke-width: 1.2; stroke-dasharray: 2 7; opacity: 0.7; animation: spin 40s linear infinite; }
+.r-arcs { stroke-width: 3; stroke-dasharray: 38 22 12 22; opacity: 0.9; animation: spin 22s linear infinite reverse; }
+.r-mid { stroke-width: 1; opacity: 0.55; }
+.r-inner { stroke-width: 2; stroke-dasharray: 90 12; animation: spin 14s linear infinite; }
+.core { fill: var(--live); opacity: 0.2; transform-box: fill-box; transform-origin: 50% 50%; }
+.core-dot { fill: var(--live); transform-box: fill-box; transform-origin: 50% 50%; animation: breathe 4s ease-in-out infinite; }
+body[data-mode="thinking"] .r-arcs { animation-duration: 3.5s; }
+body[data-mode="thinking"] .r-inner { animation-duration: 2.5s; }
+body[data-mode="speaking"] .core-dot { animation: talk 0.55s ease-in-out infinite; }
+body[data-mode="speaking"] .core { animation: talk 0.55s ease-in-out infinite; }
+body[data-mode="listening"] .core { animation: talk 1.1s ease-in-out infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe { 50% { transform: scale(1.12); } }
+@keyframes talk { 50% { transform: scale(1.35); } }
+@media (prefers-reduced-motion: reduce) {
+  .orb .ring, .core, .core-dot { animation: none !important; }
+}
+
+.log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-block: 8px; overscroll-behavior: contain; }
+.msg { max-width: min(100%, 62ch); min-width: 0; overflow-wrap: anywhere; }
+.msg .who { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.msg .body { white-space: pre-wrap; }
+.msg.jarvis { border-left: 2px solid var(--cyan); padding-left: 12px; }
+.msg.jarvis .who { color: var(--cyan); }
+.msg.you { align-self: flex-end; border-right: 2px solid var(--cyan-dim); padding-right: 12px; text-align: right; }
+.msg.note { font-family: var(--font-mono); font-size: 12px; color: var(--amber); }
+.act { display: inline-block; margin-top: 8px; padding: 9px 14px; min-height: 20px; border: 1px solid var(--cyan); color: var(--cyan); text-decoration: none; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; border-radius: 3px; }
+.act:hover { background: var(--cyan); color: var(--ink); }
+
+.chips { flex: none; display: flex; gap: 8px; overflow-x: auto; padding-block: 6px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { white-space: nowrap; background: transparent; border: 1px solid var(--line); color: var(--muted); font-family: var(--font-mono); font-size: 12px; padding: 8px 12px; min-height: 36px; border-radius: 3px; }
+.chip:hover { color: var(--text); border-color: var(--cyan-dim); }
+
+.composer { flex: none; display: flex; gap: 8px; align-items: stretch; }
+.composer input { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 0 12px; min-height: 48px; font-size: 16px; color: var(--text); }
+.composer input::placeholder { color: var(--muted); }
+.composer button { min-height: 48px; min-width: 52px; border-radius: 3px; border: 1px solid var(--line); background: var(--panel); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+.composer .send { background: var(--cyan); color: var(--ink); border-color: var(--cyan); font-weight: 500; padding: 0 16px; }
+.composer .send[disabled] { opacity: 0.5; }
+.composer .mic[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+.hint { flex: none; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--muted); margin: 6px 0 0; }
+
+html { background: var(--ink); }
+[hidden] { display: none !important; }
+body { padding-top: max(6px, env(safe-area-inset-top, 0px)); padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+.bar { flex-wrap: wrap; }
+.ghost[aria-pressed="true"] { color: var(--ink); background: var(--cyan); border-color: var(--cyan); }
+.settings { max-height: 52vh; overflow-y: auto; }
+.settings .note { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--muted); margin: 0; text-transform: none; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">JARVIS<small>MK I</small></div>
+  <div class="right">
+    <div class="status" role="status"><i></i><span id="statusText">STANDBY</span></div>
+    <button class="ghost" id="hfBtn" type="button" aria-pressed="false">Hands-free</button>
+    <button class="ghost" id="settingsBtn" type="button" aria-expanded="false" aria-controls="settings">Setup</button>
+  </div>
+</header>
+
+<section class="settings" id="settings" hidden>
+  <label for="nameIn">What should I call you
+    <input type="text" id="nameIn" autocomplete="off" placeholder="Your name">
+  </label>
+  <label for="keyIn">Claude API key
+    <input type="password" id="keyIn" autocomplete="off" placeholder="sk-ant-..." spellcheck="false">
+  </label>
+  <p class="note">Kept only on this phone. Get a key at console.anthropic.com and set a monthly spend limit there.</p>
+  <label for="modelIn">Claude model
+    <input type="text" id="modelIn" autocomplete="off" spellcheck="false">
+  </label>
+  <label for="elKeyIn">ElevenLabs key (optional, for a custom voice)
+    <input type="password" id="elKeyIn" autocomplete="off" spellcheck="false">
+  </label>
+  <label for="elVoiceIn">ElevenLabs voice ID (optional)
+    <input type="text" id="elVoiceIn" autocomplete="off" spellcheck="false">
+  </label>
+  <label for="voiceSel">Phone voice
+    <select id="voiceSel"></select>
+  </label>
+  <label for="rateIn">Speaking speed
+    <input type="range" id="rateIn" min="0.7" max="1.4" step="0.05" value="1">
+  </label>
+  <div class="row">
+    <label for="speakIn"><input type="checkbox" id="speakIn" checked> Speak replies aloud</label>
+    <button class="ghost" id="testVoice" type="button">Test voice</button>
+    <button class="ghost" id="clearBtn" type="button">Clear chat</button>
+  </div>
+</section>
+
+<section class="stage">
+  <button class="orb" id="orb" type="button" aria-label="Jarvis core. Tap to stop speaking.">
+    <svg viewBox="0 0 200 200" aria-hidden="true">
+      <circle class="ring r-outer" cx="100" cy="100" r="94"/>
+      <circle class="ring r-arcs" cx="100" cy="100" r="80"/>
+      <circle class="ring r-mid" cx="100" cy="100" r="64"/>
+      <circle class="ring r-inner" cx="100" cy="100" r="50"/>
+      <circle class="core" cx="100" cy="100" r="36"/>
+      <circle class="core-dot" cx="100" cy="100" r="16"/>
+    </svg>
+  </button>
+</section>
+
+<main class="log" id="log" aria-live="polite"></main>
+
+<div class="chips" id="chips"></div>
+
+<form class="composer" id="form" autocomplete="off">
+  <input id="q" type="text" enterkeyhint="send" placeholder="Ask Jarvis anything" aria-label="Message Jarvis">
+  <button type="button" class="mic" id="mic" aria-pressed="false" aria-label="Voice input">Mic</button>
+  <button type="submit" class="send" id="send">Send</button>
+</form>
+<p class="hint">Tap Mic to speak once, or turn on Hands-free and say &ldquo;Jarvis&rdquo; before your request.</p>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var log = $('log'), q = $('q'), form = $('form'), sendBtn = $('send');
+  var history = [];
+  var busy = false;
+  var abortCtl = null;
+  var voices = [];
+  var audioEl = null;
+  var hf = false;            // hands-free (wake word) mode
+  var rec = null;
+  var oneShot = false;
+  var awaitingUntil = 0;     // after "Jarvis" alone, next phrase is the command
+  var ignoreUntil = 0;       // ignore the mic while Jarvis is talking
+  var wl = null;
+
+  /* ---------- saved settings (stay on this phone) ---------- */
+  function load(k, d) { try { var v = localStorage.getItem('jarvis.' + k); return v === null ? d : v; } catch (e) { return d; } }
+  function save(k, v) { try { localStorage.setItem('jarvis.' + k, v); } catch (e) {} }
+  var prefs = {
+    name: load('name', ''),
+    speak: load('speak', '1') === '1',
+    rate: parseFloat(load('rate', '1')) || 1,
+    voice: load('voice', ''),
+    apiKey: load('apiKey', ''),
+    model: load('model', 'claude-haiku-5-5'),
+    elKey: load('elKey', ''),
+    elVoice: load('elVoice', '')
+  };
+
+  /* ---------- status / orb ---------- */
+  var labels = { idle: 'STANDBY', listening: 'LISTENING', thinking: 'THINKING', speaking: 'SPEAKING' };
+  function setMode(m) {
+    document.body.setAttribute('data-mode', m);
+    $('statusText').textContent = (m === 'idle' && hf) ? 'SAY "JARVIS"' : (labels[m] || 'STANDBY');
+  }
+  function modeNow() { return document.body.getAttribute('data-mode'); }
+  setMode('idle');
+
+  /* ---------- transcript ---------- */
+  function addMsg(kind, text, link) {
+    var el = document.createElement('div');
+    el.className = 'msg ' + kind;
+    if (kind === 'jarvis' || kind === 'you') {
+      var who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = kind === 'you' ? (prefs.name || 'You') : 'Jarvis';
+      el.appendChild(who);
+    }
+    var body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = text;
+    el.appendChild(body);
+    if (link) {
+      var a = document.createElement('a');
+      a.className = 'act';
+      a.href = link.href;
+      if (/^https?:/i.test(link.href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+      a.textContent = link.label;
+      el.appendChild(a);
+    }
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return body;
+  }
+
+  function greeting() {
+    var h = new Date().getHours();
+    var part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+    return part + (prefs.name ? ', ' + prefs.name : '') + '. Jarvis online. ' +
+      (prefs.apiKey ? 'Tap Mic and speak, or turn on Hands-free and say "Jarvis".' : 'Open Setup and paste your Claude API key so I can think. Built-in commands already work.');
+  }
+
+  /* ---------- speech out ---------- */
+  var synth = window.speechSynthesis || null;
+  function pickDefaultVoice() {
+    if (!voices.length) return null;
+    var byName = voices.filter(function (v) { return v.name === prefs.voice; })[0];
+    if (byName) return byName;
+    var gb = voices.filter(function (v) { return /en[-_]GB/i.test(v.lang); });
+    var male = gb.filter(function (v) { return /male|daniel|george|ryan/i.test(v.name) && !/female/i.test(v.name); })[0];
+    return male || gb[0] || voices.filter(function (v) { return /^en/i.test(v.lang); })[0] || voices[0];
+  }
+  function refreshVoices() {
+    if (!synth) return;
+    voices = synth.getVoices() || [];
+    var sel = $('voiceSel');
+    sel.textContent = '';
+    var chosen = pickDefaultVoice();
+    voices.forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = v.name;
+      o.textContent = v.name + ' (' + v.lang + ')';
+      if (chosen && v.name === chosen.name) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (!voices.length) {
+      var o2 = document.createElement('option');
+      o2.textContent = 'Default voice';
+      sel.appendChild(o2);
+    }
+  }
+  if (synth) { refreshVoices(); synth.onvoiceschanged = refreshVoices; }
+
+  function clean(t) { return t.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim(); }
+
+  function doneSpeaking() {
+    ignoreUntil = Date.now() + 700;
+    setMode('idle');
+  }
+
+  function browserSpeak(text) {
+    if (!synth) { doneSpeaking(); return; }
+    synth.cancel();
+    var parts = (clean(text).match(/[^.!?]+[.!?]*/g) || []).map(function (p) { return p.trim(); }).filter(Boolean);
+    if (!parts.length) { doneSpeaking(); return; }
+    var voice = pickDefaultVoice();
+    setMode('speaking');
+    parts.forEach(function (p, i) {
+      var u = new SpeechSynthesisUtterance(p);
+      if (voice) { u.voice = voice; u.lang = voice.lang; }
+      u.rate = prefs.rate;
+      u.pitch = 0.95;
+      if (i === parts.length - 1) { u.onend = doneSpeaking; u.onerror = doneSpeaking; }
+      synth.speak(u);
+    });
+  }
+
+  function stopAudio() {
+    if (audioEl) { try { audioEl.pause(); } catch (e) {} audioEl = null; }
+  }
+
+  function elevenSpeak(text) {
+    var t = clean(text).slice(0, 1500);
+    setMode('thinking');
+    return fetch('https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(prefs.elVoice) + '?output_format=mp3_44100_64', {
+      method: 'POST',
+      headers: { 'xi-api-key': prefs.elKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+      body: JSON.stringify({ text: t, model_id: 'eleven_flash_v2_5' })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('voice ' + r.status);
+      return r.blob();
+    }).then(function (b) {
+      return new Promise(function (resolve, reject) {
+        stopAudio();
+        var url = URL.createObjectURL(b);
+        audioEl = new Audio(url);
+        audioEl.onended = function () { URL.revokeObjectURL(url); resolve(); };
+        audioEl.onerror = function () { reject(new Error('play')); };
+        setMode('speaking');
+        audioEl.play().catch(reject);
+      });
+    });
+  }
+
+  function speak(text) {
+    if (!prefs.speak) { doneSpeaking(); return; }
+    if (prefs.elKey && prefs.elVoice) {
+      elevenSpeak(text).then(doneSpeaking).catch(function () {
+        addMsg('note', 'Custom voice failed, using the phone voice instead. Check your ElevenLabs key and voice ID in Setup.');
+        browserSpeak(text);
+      });
+    } else {
+      browserSpeak(text);
+    }
+  }
+  function stopSpeaking() {
+    if (synth) synth.cancel();
+    stopAudio();
+    if (modeNow() === 'speaking') doneSpeaking();
+  }
+  $('orb').addEventListener('click', function () {
+    if (abortCtl && busy) { abortCtl.abort(); return; }
+    stopSpeaking();
+  });
+
+  /* ---------- built-in phone commands ---------- */
+  var sites = {
+    youtube: 'https://m.youtube.com', gmail: 'https://mail.google.com', maps: 'https://maps.google.com',
+    google: 'https://www.google.com', wikipedia: 'https://en.wikipedia.org', github: 'https://github.com',
+    whatsapp: 'https://web.whatsapp.com', drive: 'https://drive.google.com', calendar: 'https://calendar.google.com',
+    news: 'https://news.google.com', photos: 'https://photos.google.com', translate: 'https://translate.google.com'
+  };
+  function enc(s) { return encodeURIComponent(s); }
+
+  function intentLink(action, extras) {
+    return 'intent:#Intent;action=' + action + ';' + extras + 'end';
+  }
+
+  function local(raw) {
+    var t = raw.trim();
+    var l = t.toLowerCase().replace(/[?!.,]+$/, '');
+    var m;
+
+    if (/^(what('| i)?s )?(the )?time( is it)?( now)?$|^what time is it( now)?$|^current time$|^tell me the time$/.test(l)) {
+      return { text: 'It is ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.' };
+    }
+    if (/^(what('| i)?s )?(the |today'?s )?(date|day)( is it| today)?$|^what day is it( today)?$|^today'?s date$/.test(l)) {
+      return { text: 'Today is ' + new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '.' };
+    }
+    if (/^(clear|reset)( chat| screen)?$/.test(l)) { return { clear: true }; }
+    if (/^[\d\s+\-*\/().%]+$/.test(t) && /\d/.test(t) && /[+\-*\/%]/.test(t)) {
+      try {
+        var r = Function('"use strict";return (' + t + ')')();
+        if (typeof r === 'number' && isFinite(r)) return { text: t.replace(/\s+/g, ' ') + ' = ' + (Math.round(r * 1e8) / 1e8) + '.' };
+      } catch (e) {}
+    }
+    if ((m = l.match(/^open (?:the )?([a-z ]+?)(?: app| website| site)?$/)) && sites[m[1].trim()]) {
+      var name = m[1].trim();
+      return { text: 'Opening ' + name + '. Tap the button.', link: { label: 'Open ' + name, href: sites[name] } };
+    }
+    if ((m = t.match(/^(?:play|watch|youtube)\s+(.+)/i))) {
+      return { text: 'Searching YouTube for ' + m[1] + '.', link: { label: 'Open YouTube results', href: 'https://m.youtube.com/results?search_query=' + enc(m[1]) } };
+    }
+    if ((m = t.match(/^(?:navigate|directions?|take me|route)\s+(?:to\s+)?(.+)/i))) {
+      return { text: 'Route to ' + m[1] + ' is ready in Maps.', link: { label: 'Start in Maps', href: 'https://www.google.com/maps/dir/?api=1&destination=' + enc(m[1]) } };
+    }
+    if ((m = t.match(/^(?:search(?: for)?|google|look up)\s+(.+)/i))) {
+      return { text: 'Here is the search for ' + m[1] + '.', link: { label: 'Open results', href: 'https://www.google.com/search?q=' + enc(m[1]) } };
+    }
+    if ((m = t.match(/^(?:call|dial|phone)\s+(\+?[\d][\d\s-]{5,})$/i))) {
+      var num = m[1].replace(/[\s-]/g, '');
+      return { text: 'Ready to call ' + num + '. Tap to dial.', link: { label: 'Call ' + num, href: 'tel:' + num } };
+    }
+    if ((m = t.match(/^(?:whatsapp|message|text)\s+(\+?[\d][\d\s-]{7,})\s*(.*)$/i))) {
+      var wn = m[1].replace(/[\s-]/g, '').replace(/^\+/, '');
+      return { text: 'Message to ' + wn + ' is ready in WhatsApp.', link: { label: 'Open WhatsApp', href: 'https://wa.me/' + wn + (m[2] ? '?text=' + enc(m[2]) : '') } };
+    }
+    if (/\btimer\b/.test(l) && (m = l.match(/(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)/))) {
+      var n = parseInt(m[1], 10), u = m[2].charAt(0);
+      var secs = u === 'h' ? n * 3600 : (u === 'm' ? n * 60 : n);
+      var href = intentLink('android.intent.action.SET_TIMER', 'i.android.intent.extra.alarm.LENGTH=' + secs + ';S.android.intent.extra.alarm.MESSAGE=Jarvis;B.android.intent.extra.alarm.SKIP_UI=false;');
+      return { text: 'Timer for ' + n + ' ' + m[2] + '. Tap to start it in your Clock app.', link: { label: 'Start timer', href: href } };
+    }
+    if (/\balarm\b|\bwake me\b/.test(l) && (m = l.match(/(\d{1,2})(?:[:.\s](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/))) {
+      var hh = parseInt(m[1], 10), mm = m[2] ? parseInt(m[2], 10) : 0, ap = (m[3] || '').charAt(0);
+      if (ap === 'p' && hh < 12) hh += 12;
+      if (ap === 'a' && hh === 12) hh = 0;
+      if (hh < 24 && mm < 60) {
+        var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+        var ahref = intentLink('android.intent.action.SET_ALARM', 'i.android.intent.extra.alarm.HOUR=' + hh + ';i.android.intent.extra.alarm.MINUTES=' + mm + ';S.android.intent.extra.alarm.MESSAGE=Jarvis;B.android.intent.extra.alarm.SKIP_UI=false;');
+        return { text: 'Alarm for ' + pad(hh) + ':' + pad(mm) + '. Tap to set it in your Clock app.', link: { label: 'Set alarm ' + pad(hh) + ':' + pad(mm), href: ahref } };
+      }
+    }
+    if (/\bbattery\b/.test(l) && navigator.getBattery) {
+      return { async: navigator.getBattery().then(function (b) {
+        return { text: 'Battery is at ' + Math.round(b.level * 100) + ' percent' + (b.charging ? ' and charging.' : '.') };
+      }).catch(function () { return { text: 'Your browser will not tell me the battery level.' }; }) };
+    }
+    return null;
+  }
+
+  /* ---------- the brain: Claude API ---------- */
+  function persona() {
+    var now = new Date().toLocaleString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return 'You are JARVIS, a personal assistant on the user\'s Android phone. Speak like a calm, capable, dry-witted British engineer-butler. ' +
+      'Your replies are read aloud, so write plain spoken sentences: no markdown, no lists, no emoji, no symbols. ' +
+      'Keep replies under 60 words unless the user asks for more detail. ' + (prefs.name ? 'The user\'s name is ' + prefs.name + '. ' : '') +
+      'Current local date and time: ' + now + '. ' +
+      'This app can open websites, search, start Maps directions, dial a number, and offer timer and alarm buttons, but only through its built-in commands. ' +
+      'It cannot read the screen, read messages, or control other apps. If asked for something it cannot do, say so briefly and suggest what the user can do. Never claim to have done something you did not do.';
+  }
+
+  function ask(text) {
+    if (!prefs.apiKey) {
+      addMsg('jarvis', 'I need a Claude API key to think about that. Open Setup and paste yours in. The built-in commands work without one.');
+      return;
+    }
+    var body = addMsg('jarvis', 'Working on it...');
+    busy = true;
+    sendBtn.disabled = true;
+    setMode('thinking');
+    abortCtl = new AbortController();
+    history.push({ role: 'user', content: text });
+    var msgs = history.slice(-12);
+    while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+
+    function finish() { busy = false; sendBtn.disabled = false; abortCtl = null; }
+    function fail(msg) { history.pop(); finish(); body.textContent = msg; doneSpeaking(); }
+
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: abortCtl.signal,
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': prefs.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: prefs.model || 'claude-haiku-5-5', max_tokens: 500, system: persona(), messages: msgs })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, j: j }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        var s = res.status;
+        if (s === 401) return fail('The API key was rejected. Check it in Setup.');
+        if (s === 429) return fail('I am being asked too often. Give me a minute.');
+        if (s === 402 || (res.j && res.j.error && /credit|billing/i.test(res.j.error.message || ''))) return fail('The account is out of credit. Top it up at console.anthropic.com.');
+        if (s === 404 || s === 400) return fail('The request was refused. The model name in Setup may be wrong. ' + ((res.j && res.j.error && res.j.error.message) || ''));
+        return fail('Something went wrong reaching Claude (error ' + s + ').');
+      }
+      var out = (res.j.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('').trim() || 'I have nothing to add.';
+      body.textContent = out;
+      history.push({ role: 'assistant', content: out });
+      finish();
+      log.scrollTop = log.scrollHeight;
+      speak(out);
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') return fail('Cancelled.');
+      fail('I cannot reach Claude right now. Check your internet connection.');
+    });
+  }
+
+  /* ---------- run a command (typed or spoken) ---------- */
+  function handle(raw) {
+    var text = raw.trim();
+    if (!text || busy) return;
+    stopSpeaking();
+    addMsg('you', text);
+    var hit = local(text);
+    if (hit && hit.clear) { log.textContent = ''; history = []; addMsg('jarvis', 'Cleared.'); return; }
+    if (hit && hit.async) {
+      busy = true; sendBtn.disabled = true; setMode('thinking');
+      hit.async.then(function (r) { busy = false; sendBtn.disabled = false; addMsg('jarvis', r.text); speak(r.text); });
+      return;
+    }
+    if (hit) { addMsg('jarvis', hit.text, hit.link); speak(hit.text); return; }
+    ask(text);
+  }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = q.value;
+    q.value = '';
+    handle(v);
+  });
+
+  /* ---------- quick commands ---------- */
+  ['What time is it', 'Set a timer for 5 minutes', 'Open YouTube', 'Directions to the nearest petrol pump', 'Give me a plan for my evening', 'Tell me something interesting'].forEach(function (c) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.textContent = c;
+    b.addEventListener('click', function () { handle(c); });
+    $('chips').appendChild(b);
+  });
+
+  /* ---------- microphone ---------- */
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function micNote(msg) { addMsg('note', msg); }
+  function lang() { return navigator.language || 'en-US'; }
+
+  function heard(raw) {
+    if (busy || modeNow() === 'speaking' || Date.now() < ignoreUntil) return;
+    var t = (raw || '').trim();
+    if (!t) return;
+    if (oneShot) { oneShot = false; handle(t); return; }
+    var wake = t.match(/\b(jarvis|jarvas|jervis|travis)\b/i);
+    if (wake) {
+      var cmd = t.slice(wake.index + wake[0].length).replace(/^[\s,.:;!-]+/, '');
+      if (cmd) { awaitingUntil = 0; handle(cmd); }
+      else { awaitingUntil = Date.now() + 8000; addMsg('jarvis', 'Yes?'); speak('Yes?'); }
+    } else if (Date.now() < awaitingUntil) {
+      awaitingUntil = 0;
+      handle(t);
+    }
+  }
+
+  function lockOn() { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wl = l; }).catch(function () {}); }
+  function lockOff() { if (wl) { try { wl.release(); } catch (e) {} wl = null; } }
+  document.addEventListener('visibilitychange', function () { if (hf && document.visibilityState === 'visible') lockOn(); });
+
+  function runRec(continuous) {
+    try {
+      rec = new SR();
+      rec.lang = lang();
+      rec.continuous = continuous;
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onstart = function () { $('mic').setAttribute('aria-pressed', 'true'); if (!busy && modeNow() !== 'speaking') setMode(continuous && !oneShot ? 'idle' : 'listening'); };
+      rec.onresult = function (e) {
+        for (var i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) heard(e.results[i][0].transcript);
+        }
+      };
+      rec.onerror = function (e) {
+        if (e && /not-allowed|service-not-allowed/.test(e.error)) {
+          hf = false; syncHf();
+          micNote('Microphone permission was denied. Allow it for this site in Chrome (lock icon in the address bar, or Android Settings > Apps > Chrome > Permissions) and try again.');
+        }
+      };
+      rec.onend = function () {
+        $('mic').setAttribute('aria-pressed', 'false');
+        if (hf) { setTimeout(function () { if (hf) runRec(true); }, 350); }
+        else if (!busy && modeNow() === 'listening') setMode('idle');
+      };
+      rec.start();
+    } catch (err) {
+      micNote('I could not start the microphone here. Use Chrome on Android, and open the app over a secure (https) address.');
+      hf = false; syncHf();
+    }
+  }
+
+  $('mic').addEventListener('click', function () {
+    if (!SR) { micNote('This browser has no speech recognition. Use Chrome on Android.'); return; }
+    stopSpeaking();
+    if (hf) { awaitingUntil = Date.now() + 8000; setMode('listening'); return; }
+    if (rec) { try { rec.abort(); } catch (e) {} }
+    oneShot = true;
+    runRec(false);
+  });
+
+  function syncHf() {
+    $('hfBtn').setAttribute('aria-pressed', hf ? 'true' : 'false');
+    $('hfBtn').textContent = hf ? 'Hands-free: on' : 'Hands-free';
+    if (!busy && modeNow() !== 'speaking') setMode('idle');
+  }
+  $('hfBtn').addEventListener('click', function () {
+    if (!SR) { micNote('This browser has no speech recognition. Use Chrome on Android.'); return; }
+    if (hf) {
+      hf = false; lockOff();
+      if (rec) { try { rec.abort(); } catch (e) {} }
+      syncHf();
+      return;
+    }
+    hf = true; oneShot = false; lockOn(); syncHf();
+    addMsg('note', 'Hands-free is on. Keep this screen open and say "Jarvis" followed by your request.');
+    runRec(true);
+  });
+
+  /* ---------- settings ---------- */
+  var sp = $('settings');
+  $('settingsBtn').addEventListener('click', function () {
+    sp.hidden = !sp.hidden;
+    this.setAttribute('aria-expanded', String(!sp.hidden));
+    if (!sp.hidden) refreshVoices();
+  });
+  function bindText(id, key) {
+    var el = $(id);
+    el.value = prefs[key] || '';
+    el.addEventListener('change', function () { prefs[key] = this.value.trim(); save(key, prefs[key]); });
+  }
+  bindText('nameIn', 'name');
+  bindText('keyIn', 'apiKey');
+  bindText('modelIn', 'model');
+  bindText('elKeyIn', 'elKey');
+  bindText('elVoiceIn', 'elVoice');
+  $('speakIn').checked = prefs.speak;
+  $('speakIn').addEventListener('change', function () { prefs.speak = this.checked; save('speak', prefs.speak ? '1' : '0'); if (!prefs.speak) stopSpeaking(); });
+  $('rateIn').value = String(prefs.rate);
+  $('rateIn').addEventListener('input', function () { prefs.rate = parseFloat(this.value) || 1; save('rate', String(prefs.rate)); });
+  $('voiceSel').addEventListener('change', function () { prefs.voice = this.value; save('voice', prefs.voice); });
+  $('testVoice').addEventListener('click', function () {
+    var was = prefs.speak; prefs.speak = true;
+    speak('All systems are running. Good to see you.');
+    prefs.speak = was;
+  });
+  $('clearBtn').addEventListener('click', function () { log.textContent = ''; history = []; addMsg('jarvis', greeting()); });
+
+  /* ---------- boot ---------- */
+  addMsg('jarvis', greeting());
+  if (!prefs.apiKey) sp.hidden = false, $('settingsBtn').setAttribute('aria-expanded', 'true');
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(function () {}); }
+})();
+</script>
+
+</body>
+</html>
